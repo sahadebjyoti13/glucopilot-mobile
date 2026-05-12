@@ -12,8 +12,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ─── Config — edit these to point at your actual servers ─────────────────────
-const BACKEND_URL    = 'http://10.11.111.125:3000';  // Your backend server IP
-const BACKEND_WS     = 'ws://192.168.1.100:3000/ws';
+const BACKEND_URL = 'http://10.11.111.125:3000';
+const BACKEND_WS  = 'ws://10.11.111.125:3000/ws';
 const ESP32_WS_URL   = 'ws://192.168.4.1:81';        // Direct ESP32 (when on pump WiFi)
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
