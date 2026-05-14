@@ -1,34 +1,59 @@
 /**
  * GlucoPilot Mobile — API & Connection Service
- * React Native (Expo) — src/services/api.js
- *
- * Manages:
- *   - REST calls to backend server
- *   - WebSocket connection to backend (which relays to ESP32)
- *   - Direct ESP32 WebSocket for low-latency pump control
- *   - Token storage via AsyncStorage
+ * IP is now stored in AsyncStorage so it can be changed from Settings
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ─── Config — edit these to point at your actual servers ─────────────────────
-const BACKEND_URL = 'http://10.11.111.125:3000';
-const BACKEND_WS  = 'ws://10.11.111.125:3000/ws';
-const ESP32_WS_URL   = 'ws://192.168.4.1:81';        // Direct ESP32 (when on pump WiFi)
+const DEFAULT_BACKEND_IP = 'glucopilot-backend.onrender.com';
+const DEFAULT_ESP32_IP   = '192.168.4.1';
 
-// ─── Token helpers ────────────────────────────────────────────────────────────
+// ─── Config store ─────────────────────────────────────────────
+export const Config = {
+ async getBackendURL() {
+  const ip = await AsyncStorage.getItem('backend_ip') || DEFAULT_BACKEND_IP;
+  const prefix = ip.includes('onrender.com') ? 'https' : 'http';
+  const port   = ip.includes('onrender.com') ? '' : ':3000';
+  return `${prefix}://${ip}${port}`;
+},
+async getBackendWS() {
+  const ip = await AsyncStorage.getItem('backend_ip') || DEFAULT_BACKEND_IP;
+  const prefix = ip.includes('onrender.com') ? 'wss' : 'ws';
+  const port   = ip.includes('onrender.com') ? '' : ':3000';
+  return `${prefix}://${ip}${port}/ws`;
+},
+  async getESP32URL() {
+    const ip = await AsyncStorage.getItem('esp32_ip') || DEFAULT_ESP32_IP;
+    return `ws://${ip}:81`;
+  },
+  async setBackendIP(ip) {
+    await AsyncStorage.setItem('backend_ip', ip.trim());
+  },
+  async setESP32IP(ip) {
+    await AsyncStorage.setItem('esp32_ip', ip.trim());
+  },
+  async getBackendIP() {
+    return await AsyncStorage.getItem('backend_ip') || DEFAULT_BACKEND_IP;
+  },
+  async getESP32IP() {
+    return await AsyncStorage.getItem('esp32_ip') || DEFAULT_ESP32_IP;
+  },
+};
+
+// ─── Token helpers ─────────────────────────────────────────────
 export const TokenStore = {
-  async get()          { return AsyncStorage.getItem('glucopilot_token'); },
-  async set(t)         { return AsyncStorage.setItem('glucopilot_token', t); },
-  async clear()        { return AsyncStorage.removeItem('glucopilot_token'); },
-  async getPatientId() { return AsyncStorage.getItem('glucopilot_pid'); },
+  async get()            { return AsyncStorage.getItem('glucopilot_token'); },
+  async set(t)           { return AsyncStorage.setItem('glucopilot_token', t); },
+  async clear()          { return AsyncStorage.removeItem('glucopilot_token'); },
+  async getPatientId()   { return AsyncStorage.getItem('glucopilot_pid'); },
   async setPatientId(id) { return AsyncStorage.setItem('glucopilot_pid', id); },
 };
 
-// ─── REST API ─────────────────────────────────────────────────────────────────
+// ─── REST API ──────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
-  const token = await TokenStore.get();
-  const res   = await fetch(`${BACKEND_URL}${path}`, {
+  const baseURL = await Config.getBackendURL();
+  const token   = await TokenStore.get();
+  const res = await fetch(`${baseURL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -42,65 +67,53 @@ async function apiFetch(path, options = {}) {
 }
 
 export const API = {
-  // Auth
   async register(name, email, password) {
     const data = await apiFetch('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ name, email, password }),
+      method: 'POST', body: JSON.stringify({ name, email, password }),
     });
     await TokenStore.set(data.token);
     await TokenStore.setPatientId(data.patientId);
     return data;
   },
-
   async login(email, password) {
     const data = await apiFetch('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
+      method: 'POST', body: JSON.stringify({ email, password }),
     });
     await TokenStore.set(data.token);
     await TokenStore.setPatientId(data.patientId);
     return data;
   },
-
-  // Profile
-  getProfile: ()         => apiFetch('/api/patient/profile'),
-  updateProfile: (body)  => apiFetch('/api/patient/profile', { method: 'PUT', body: JSON.stringify(body) }),
-
-  // Glucose
-  postGlucose: (value, trend = 0, source = 'cgm') =>
+  getProfile:       ()        => apiFetch('/api/patient/profile'),
+  updateProfile:    (body)    => apiFetch('/api/patient/profile', { method: 'PUT', body: JSON.stringify(body) }),
+  postGlucose:      (value, trend = 0, source = 'cgm') =>
     apiFetch('/api/glucose', { method: 'POST', body: JSON.stringify({ value, trend, source }) }),
-  getGlucoseHistory: (limit = 288) =>
-    apiFetch(`/api/glucose/history?limit=${limit}`),
-
-  // Bolus
-  postBolus: (units, type = 'manual') =>
+  getGlucoseHistory:(limit=288) => apiFetch(`/api/glucose/history?limit=${limit}`),
+  postBolus:        (units, type='manual') =>
     apiFetch('/api/bolus', { method: 'POST', body: JSON.stringify({ units, type }) }),
-  getBolusHistory: () => apiFetch('/api/bolus/history'),
-
-  // Stats
-  getDailyStats: () => apiFetch('/api/stats/daily'),
-
-  // Health
-  ping: () => apiFetch('/health'),
+  getBolusHistory:  ()        => apiFetch('/api/bolus/history'),
+  getDailyStats:    ()        => apiFetch('/api/stats/daily'),
+  async ping() {
+    const baseURL = await Config.getBackendURL();
+    const res = await fetch(`${baseURL}/health`);
+    return res.json();
+  },
 };
 
-// ─── WebSocket Manager ────────────────────────────────────────────────────────
+// ─── WebSocket Manager ─────────────────────────────────────────
 class WSManager {
   constructor() {
     this.backendWs  = null;
     this.esp32Ws    = null;
-    this.listeners  = new Map();  // event → Set of callbacks
+    this.listeners  = new Map();
     this.reconnectDelay = 3000;
     this._backendConnecting = false;
     this._esp32Connecting   = false;
   }
 
-  // ── Subscribe to events ────────────────────────────────────────────────────
   on(event, cb) {
     if (!this.listeners.has(event)) this.listeners.set(event, new Set());
     this.listeners.get(event).add(cb);
-    return () => this.listeners.get(event).delete(cb);  // unsubscribe
+    return () => this.listeners.get(event).delete(cb);
   }
 
   emit(event, data) {
@@ -108,37 +121,25 @@ class WSManager {
     this.listeners.get('*')?.forEach(cb => cb({ event, data }));
   }
 
-  // ── Backend WebSocket ──────────────────────────────────────────────────────
   async connectBackend() {
     if (this._backendConnecting) return;
     this._backendConnecting = true;
     const token = await TokenStore.get();
     if (!token) { this._backendConnecting = false; return; }
-
-    const url = `${BACKEND_WS}?token=${token}&role=mobile`;
+    const url = `${await Config.getBackendWS()}?token=${token}&role=mobile`;
     this.backendWs = new WebSocket(url);
-
     this.backendWs.onopen = () => {
       this._backendConnecting = false;
       this.emit('backend:connected', {});
-      console.log('[WS] Backend connected');
     };
-
     this.backendWs.onmessage = ({ data }) => {
       try {
         const msg = JSON.parse(data);
         this.emit(`pump:${msg.type?.toLowerCase()}`, msg);
         this.emit('pump:any', msg);
-      } catch (e) {
-        console.warn('[WS] Bad message', e);
-      }
+      } catch {}
     };
-
-    this.backendWs.onerror = (e) => {
-      this._backendConnecting = false;
-      this.emit('backend:error', e);
-    };
-
+    this.backendWs.onerror = () => { this._backendConnecting = false; this.emit('backend:error', {}); };
     this.backendWs.onclose = () => {
       this._backendConnecting = false;
       this.emit('backend:disconnected', {});
@@ -146,19 +147,16 @@ class WSManager {
     };
   }
 
-  // ── Direct ESP32 WebSocket ─────────────────────────────────────────────────
-  connectESP32() {
+  async connectESP32() {
     if (this._esp32Connecting) return;
     this._esp32Connecting = true;
-    this.esp32Ws = new WebSocket(ESP32_WS_URL);
-
+    const url = await Config.getESP32URL();
+    this.esp32Ws = new WebSocket(url);
     this.esp32Ws.onopen = () => {
       this._esp32Connecting = false;
       this.emit('esp32:connected', {});
-      console.log('[WS] ESP32 direct connected');
       this.sendToESP32({ cmd: 'PING' });
     };
-
     this.esp32Ws.onmessage = ({ data }) => {
       try {
         const msg = JSON.parse(data);
@@ -166,12 +164,7 @@ class WSManager {
         this.emit('esp32:any', msg);
       } catch {}
     };
-
-    this.esp32Ws.onerror = () => {
-      this._esp32Connecting = false;
-      this.emit('esp32:error', {});
-    };
-
+    this.esp32Ws.onerror = () => { this._esp32Connecting = false; this.emit('esp32:error', {}); };
     this.esp32Ws.onclose = () => {
       this._esp32Connecting = false;
       this.emit('esp32:disconnected', {});
@@ -179,47 +172,41 @@ class WSManager {
     };
   }
 
-  // ── Send helpers ───────────────────────────────────────────────────────────
   sendToBackend(obj) {
     if (this.backendWs?.readyState === WebSocket.OPEN) {
-      this.backendWs.send(JSON.stringify(obj));
-      return true;
+      this.backendWs.send(JSON.stringify(obj)); return true;
     }
     return false;
   }
 
   sendToESP32(obj) {
     if (this.esp32Ws?.readyState === WebSocket.OPEN) {
-      this.esp32Ws.send(JSON.stringify(obj));
-      return true;
+      this.esp32Ws.send(JSON.stringify(obj)); return true;
     }
     return false;
   }
 
-  // Send via best available path
   sendCommand(cmd, params = {}) {
     const payload = { cmd, ...params };
-    // Try direct ESP32 first (lower latency), fall back to backend relay
-    if (!this.sendToESP32(payload)) {
-      this.sendToBackend(payload);
-    }
+    if (!this.sendToESP32(payload)) this.sendToBackend(payload);
   }
 
-  // ── Pump commands ──────────────────────────────────────────────────────────
-  deliverBolus(units)    { this.sendCommand('BOLUS', { units }); }
-  setBasalRate(rate)     { this.sendCommand('SET_BASAL', { rate }); }
-  suspendPump(reason)    { this.sendCommand('SUSPEND', { reason }); }
-  resumePump()           { this.sendCommand('RESUME'); }
-  cancelAlarm()          { this.sendCommand('CANCEL_ALARM'); }
-  getStatus()            { this.sendCommand('GET_STATUS'); }
+  deliverBolus(units)  { this.sendCommand('BOLUS',        { units }); }
+  setBasalRate(rate)   { this.sendCommand('SET_BASAL',    { rate }); }
+  suspendPump(reason)  { this.sendCommand('SUSPEND',      { reason }); }
+  resumePump()         { this.sendCommand('RESUME'); }
+  cancelAlarm()        { this.sendCommand('CANCEL_ALARM'); }
+  getStatus()          { this.sendCommand('GET_STATUS'); }
 
-  get backendConnected()  { return this.backendWs?.readyState === WebSocket.OPEN; }
-  get esp32Connected()    { return this.esp32Ws?.readyState === WebSocket.OPEN; }
+  get backendConnected() { return this.backendWs?.readyState === WebSocket.OPEN; }
+  get esp32Connected()   { return this.esp32Ws?.readyState  === WebSocket.OPEN; }
 
-  // ── Connect both ──────────────────────────────────────────────────────────
-  connectAll() {
-    this.connectBackend();
-    this.connectESP32();
+  connectAll() { this.connectBackend(); this.connectESP32(); }
+
+  reconnectAll() {
+    this.backendWs?.close();
+    this.esp32Ws?.close();
+    setTimeout(() => this.connectAll(), 500);
   }
 
   disconnect() {
@@ -230,10 +217,8 @@ class WSManager {
 
 export const WS = new WSManager();
 
-// ─── Bolus calculator ─────────────────────────────────────────────────────────
 export function calculateBolus({ currentBG, targetBG, carbsG, icr, isf, iob }) {
-  const correctionBolus = (currentBG - targetBG) / isf;
-  const mealBolus       = carbsG / icr;
-  const totalBolus      = Math.max(0, correctionBolus + mealBolus - iob);
-  return parseFloat(totalBolus.toFixed(1));
+  const correction = (currentBG - targetBG) / isf;
+  const meal       = carbsG / icr;
+  return parseFloat(Math.max(0, correction + meal - iob).toFixed(1));
 }
