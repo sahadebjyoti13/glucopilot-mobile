@@ -1,27 +1,5 @@
 /**
- * GlucoPilot Mobile App — App.js (Expo entry point)
- *
- * Install Expo:
- *   npm install -g expo-cli
- *   npx create-expo-app glucopilot-mobile
- *   Copy this file and src/ into the project
- *
- * Dependencies to install:
- *   npx expo install @react-navigation/native @react-navigation/bottom-tabs
- *   npx expo install react-native-screens react-native-safe-area-context
- *   npx expo install @react-native-async-storage/async-storage
- *   npx expo install react-native-svg
- *   npx expo install expo-notifications expo-network
- *   npm install react-native-gifted-charts
- *
- * Run on your phone:
- *   npx expo start --tunnel
- *   Scan QR with Expo Go app (iOS/Android)
- *
- * Build APK for Android:
- *   npx expo run:android   (requires Android Studio)
- *   OR use EAS Build:
- *   npm install -g eas-cli && eas build -p android --profile preview
+ * GlucoPilot App.js — with proper auth flow and mandatory fingerprint on every open
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -31,6 +9,7 @@ import {
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 import HomeScreen     from './src/screens/HomeScreen';
 import TrendsScreen   from './src/screens/TrendsScreen';
@@ -43,7 +22,6 @@ import { usePumpStore }    from './src/store/pumpStore';
 
 const Tab = createBottomTabNavigator();
 
-// Tab bar icon (simple text-based, replace with react-native-vector-icons)
 function TabIcon({ name, focused }) {
   const icons = { Home: '⬤', Trends: '📈', Profile: '👤', Settings: '⚙️' };
   return (
@@ -53,41 +31,93 @@ function TabIcon({ name, focused }) {
   );
 }
 
+// Auth states: 'checking' | 'logged_out' | 'needs_biometric' | 'authenticated'
 export default function App() {
-  const [authed,    setAuthed]    = useState(false);
-  const [checking,  setChecking]  = useState(true);
-  const appState    = useRef(AppState.currentState);
-  const setPumpData = usePumpStore(s => s.setPumpData);
-  const setGlucose  = usePumpStore(s => s.setGlucose);
-  const setConnections = usePumpStore(s => s.setConnections);
+  const [authState,  setAuthState]  = useState('checking');
+  const appState     = useRef(AppState.currentState);
+  const setPumpData  = usePumpStore(s => s.setPumpData);
+  const setGlucose   = usePumpStore(s => s.setGlucose);
+  const setConns     = usePumpStore(s => s.setConnections);
 
-  // ── Check saved token ───────────────────────────────────────────────────
+  // ── On mount: check if logged in ──────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const token = await TokenStore.get();
-      setAuthed(!!token);
-      setChecking(false);
+      if (!token) {
+        setAuthState('logged_out');
+      } else {
+        // Has token — require biometric/fingerprint before showing app
+        await requireBiometric();
+      }
     })();
   }, []);
 
-  // ── WebSocket setup ─────────────────────────────────────────────────────
+  // ── Require biometric every time app comes to foreground ──────────────────
+  const requireBiometric = async () => {
+    const hasHW    = await LocalAuthentication.hasHardwareAsync();
+    const enrolled = await LocalAuthentication.isEnrolledAsync();
+
+    if (!hasHW || !enrolled) {
+      // No biometric hardware — skip straight to app
+      setAuthState('authenticated');
+      return;
+    }
+
+    setAuthState('needs_biometric');
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage:         'Unlock GlucoPilot',
+      subtitle:              'Verify your identity to continue',
+      cancelLabel:           'Sign out instead',
+      disableDeviceFallback: false,
+    });
+
+    if (result.success) {
+      setAuthState('authenticated');
+    } else if (result.error === 'user_cancel') {
+      // User tapped "Sign out instead"
+      await TokenStore.clear();
+      setAuthState('logged_out');
+    } else {
+      // Failed — try again
+      Alert.alert(
+        'Authentication Required',
+        'Fingerprint not recognised. Try again.',
+        [{ text: 'Retry', onPress: requireBiometric }]
+      );
+    }
+  };
+
+  // ── App state — lock on background ────────────────────────────────────────
   useEffect(() => {
-    if (!authed) return;
+    const sub = AppState.addEventListener('change', async next => {
+      const wasBackground = appState.current.match(/inactive|background/);
+      const nowActive     = next === 'active';
+
+      if (wasBackground && nowActive && authState === 'authenticated') {
+        // App came back to foreground — require biometric again
+        const token = await TokenStore.get();
+        if (token) await requireBiometric();
+      }
+      appState.current = next;
+    });
+    return () => sub.remove();
+  }, [authState]);
+
+  // ── WebSocket setup ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (authState !== 'authenticated') return;
 
     WS.connectAll();
 
     const unsubs = [
-      WS.on('backend:connected',    () => setConnections({ backend: true })),
-      WS.on('backend:disconnected', () => setConnections({ backend: false })),
-      WS.on('esp32:connected',      () => setConnections({ esp32: true })),
-      WS.on('esp32:disconnected',   () => setConnections({ esp32: false })),
-
-      WS.on('pump:status', (msg) => setPumpData(msg)),
-      WS.on('esp32:status', (msg) => setPumpData(msg)),
-
-      WS.on('pump:glucose', (msg) => setGlucose(msg)),
-
-      WS.on('esp32:any', (msg) => {
+      WS.on('backend:connected',    () => setConns({ backend: true })),
+      WS.on('backend:disconnected', () => setConns({ backend: false })),
+      WS.on('esp32:connected',      () => setConns({ esp32: true })),
+      WS.on('esp32:disconnected',   () => setConns({ esp32: false })),
+      WS.on('pump:status',  msg => setPumpData(msg)),
+      WS.on('esp32:status', msg => setPumpData(msg)),
+      WS.on('pump:glucose', msg => setGlucose(msg)),
+      WS.on('esp32:any', msg => {
         if (msg.alarmActive && msg.alarmMsg) {
           Alert.alert('⚠️ Pump Alert', msg.alarmMsg, [
             { text: 'Dismiss', onPress: () => WS.cancelAlarm() },
@@ -96,38 +126,44 @@ export default function App() {
       }),
     ];
 
-    // App state — reconnect when foregrounded
-    const sub = AppState.addEventListener('change', next => {
-      if (appState.current.match(/inactive|background/) && next === 'active') {
-        WS.connectAll();
-      }
-      appState.current = next;
-    });
-
     return () => {
       unsubs.forEach(u => u());
-      sub.remove();
       WS.disconnect();
     };
-  }, [authed]);
+  }, [authState]);
 
-  if (checking) {
+  // ── Render ─────────────────────────────────────────────────────────────────
+  if (authState === 'checking') {
     return (
-      <View style={styles.splash}>
-        <Text style={styles.splashTitle}>GlucoPilot</Text>
-        <Text style={styles.splashSub}>Loading…</Text>
+      <View style={s.splash}>
+        <Text style={s.splashTitle}>GlucoPilot</Text>
+        <Text style={s.splashSub}>Loading…</Text>
       </View>
     );
   }
 
-  if (!authed) {
+  if (authState === 'logged_out') {
     return (
       <SafeAreaProvider>
-        <LoginScreen onAuth={() => setAuthed(true)} />
+        <LoginScreen onAuth={async () => {
+          // After login, immediately require biometric
+          await requireBiometric();
+        }} />
       </SafeAreaProvider>
     );
   }
 
+  if (authState === 'needs_biometric') {
+    return (
+      <View style={s.splash}>
+        <Text style={{ fontSize: 60, marginBottom: 16 }}>👆</Text>
+        <Text style={s.splashTitle}>GlucoPilot</Text>
+        <Text style={s.splashSub}>Verifying identity…</Text>
+      </View>
+    );
+  }
+
+  // authenticated
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor="#0a0e1a" />
@@ -165,13 +201,11 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   splash: {
     flex: 1, backgroundColor: '#0a0e1a',
     alignItems: 'center', justifyContent: 'center',
   },
-  splashTitle: {
-    fontSize: 32, fontWeight: '700', color: '#00d4aa', letterSpacing: -1,
-  },
-  splashSub: { fontSize: 14, color: '#546480', marginTop: 8 },
+  splashTitle: { fontSize: 32, fontWeight: '700', color: '#00d4aa', letterSpacing: -1 },
+  splashSub:   { fontSize: 14, color: '#546480', marginTop: 8 },
 });
