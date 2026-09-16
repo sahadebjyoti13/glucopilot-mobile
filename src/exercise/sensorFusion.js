@@ -28,13 +28,6 @@ function mean(values) {
   return valid.reduce((sum, v) => sum + v, 0) / valid.length;
 }
 
-/**
- * Real-time, phone-local sensor fusion.
- *
- * The engine deliberately emits CONTEXT only. It never calculates insulin
- * doses or pump commands. Accelerometer gravity is removed with a low-pass
- * estimate before motion features are calculated.
- */
 export class PhoneSensorFusion {
   constructor(options = {}) {
     this.config = { ...DEFAULTS, ...options };
@@ -45,14 +38,14 @@ export class PhoneSensorFusion {
     this.accel = [];
     this.gyro = [];
     this.gravity = { x: 0, y: 0, z: 0 };
-    this.lastTimestamp = 0;
+    this.steps = [];
   }
 
   reset() {
     this.accel = [];
     this.gyro = [];
     this.gravity = { x: 0, y: 0, z: 0 };
-    this.lastTimestamp = 0;
+    this.steps = [];
   }
 
   pushAccelerometer(sample) {
@@ -62,9 +55,6 @@ export class PhoneSensorFusion {
     const z = finite(Number(sample?.z));
     if ([x, y, z].some(v => v === null)) return;
 
-    // Exponential low-pass gravity estimate. Dynamic acceleration is the
-    // residual after gravity removal; this makes the feature meaningful for
-    // a phone in arbitrary orientation.
     const a = this.config.gravityAlpha;
     this.gravity.x = a * this.gravity.x + (1 - a) * x;
     this.gravity.y = a * this.gravity.y + (1 - a) * y;
@@ -73,9 +63,7 @@ export class PhoneSensorFusion {
     const dx = x - this.gravity.x;
     const dy = y - this.gravity.y;
     const dz = z - this.gravity.z;
-    const dynamicMagnitude = magnitude(dx, dy, dz);
-
-    this.accel.push({ timestamp, dynamicMagnitude });
+    this.accel.push({ timestamp, dynamicMagnitude: magnitude(dx, dy, dz) });
     this.trim();
   }
 
@@ -85,9 +73,16 @@ export class PhoneSensorFusion {
     const y = finite(Number(sample?.y));
     const z = finite(Number(sample?.z));
     if ([x, y, z].some(v => v === null)) return;
-
     this.gyro.push({ timestamp, magnitude: magnitude(x, y, z) });
     this.trim();
+  }
+
+  pushSteps(sample) {
+    const timestamp = Number(sample?.timestamp ?? Date.now());
+    const count = Number(sample?.count);
+    if (!Number.isFinite(count) || count < 0) return;
+    this.steps.push({ timestamp, count });
+    this.steps = this.steps.slice(-20);
   }
 
   trim() {
@@ -95,17 +90,27 @@ export class PhoneSensorFusion {
     if (this.gyro.length > this.maxSamples) this.gyro.splice(0, this.gyro.length - this.maxSamples);
   }
 
+  getStepFeatures() {
+    if (this.steps.length < 2) return { count: 0, ratePerMin: 0, valid: false };
+    const first = this.steps[0];
+    const last = this.steps[this.steps.length - 1];
+    const dtMin = (last.timestamp - first.timestamp) / 60000;
+    const delta = Math.max(0, last.count - first.count);
+    return {
+      count: last.count,
+      ratePerMin: dtMin > 0 ? delta / dtMin : 0,
+      valid: dtMin > 0,
+    };
+  }
+
   getFeatures() {
     const accelValues = this.accel.map(s => s.dynamicMagnitude);
     const gyroValues = this.gyro.map(s => s.magnitude);
-    const allTimestamps = [
-      ...this.accel.map(s => s.timestamp),
-      ...this.gyro.map(s => s.timestamp),
-    ].filter(Number.isFinite);
-
+    const allTimestamps = [...this.accel, ...this.gyro].map(s => s.timestamp).filter(Number.isFinite);
     const start = allTimestamps.length ? Math.min(...allTimestamps) : 0;
     const end = allTimestamps.length ? Math.max(...allTimestamps) : 0;
     const durationSec = start && end && end > start ? (end - start) / 1000 : 0;
+    const stepFeatures = this.getStepFeatures();
 
     return {
       motionRms: rms(accelValues),
@@ -114,6 +119,9 @@ export class PhoneSensorFusion {
       accelSamples: this.accel.length,
       gyroSamples: this.gyro.length,
       durationSec,
+      stepCount: stepFeatures.count,
+      stepRatePerMin: stepFeatures.ratePerMin,
+      pedometerValid: stepFeatures.valid,
     };
   }
 
@@ -133,9 +141,12 @@ export class PhoneSensorFusion {
         motionRms: f.motionRms,
         gyroRms: f.gyroRms,
         dynamicAccelerationMean: f.dynamicAccelerationMean,
+        stepCount: f.stepCount,
+        stepRatePerMin: f.stepRatePerMin,
         sensorQuality: {
           accelerometer: enoughAccel,
           gyroscope: enoughGyro,
+          pedometer: f.pedometerValid,
         },
         reason: `Warming up: ${Math.min(f.accelSamples, f.gyroSamples)}/${this.config.minSamples} samples`,
       });
@@ -149,7 +160,13 @@ export class PhoneSensorFusion {
       motionRms: f.motionRms,
       gyroRms: f.gyroRms,
       dynamicAccelerationMean: f.dynamicAccelerationMean,
-      sensorQuality: { accelerometer: true, gyroscope: true },
+      stepCount: f.stepCount,
+      stepRatePerMin: f.stepRatePerMin,
+      sensorQuality: {
+        accelerometer: true,
+        gyroscope: true,
+        pedometer: f.pedometerValid,
+      },
       reason: 'Features ready',
     });
   }
