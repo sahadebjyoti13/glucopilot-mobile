@@ -5,7 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const DEFAULT_BACKEND_IP = 'glucopilot-backend.onrender.com';
+const DEFAULT_BACKEND_IP = '10.225.120.125';
 const DEFAULT_ESP32_IP   = '192.168.4.1';
 
 // ─── Config store ─────────────────────────────────────────────

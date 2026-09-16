@@ -116,7 +116,10 @@ export default function App() {
       WS.on('esp32:disconnected',   () => setConns({ esp32: false })),
       WS.on('pump:status',  msg => setPumpData(msg)),
       WS.on('esp32:status', msg => setPumpData(msg)),
-      WS.on('pump:glucose', msg => setGlucose(msg)),
+      WS.on('pump:glucose', msg => {
+  setGlucose({ value: msg.value, trend: msg.trend });
+  setPumpData({ iob: msg.iob, basalRate: msg.basalRate });
+}),
       WS.on('esp32:any', msg => {
         if (msg.alarmActive && msg.alarmMsg) {
           Alert.alert('⚠️ Pump Alert', msg.alarmMsg, [
