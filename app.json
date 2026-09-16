@@ -20,12 +20,13 @@
       "adaptiveIcon": {
         "backgroundColor": "#0a0e1a"
       },
-      "package": "com.glucopilot.app",
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE"
-      ]
+        "ACCESS_WIFI_STATE",
+        "ACTIVITY_RECOGNITION"
+      ],
+      "package": "com.glucopilot.app"
     },
     "plugins": [
       "expo-asset",
