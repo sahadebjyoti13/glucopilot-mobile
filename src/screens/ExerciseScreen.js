@@ -3,20 +3,10 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { ExerciseService } from '../exercise/exerciseService';
 import { useExerciseStore } from '../store/exerciseStore';
 
-const stateLabel = {
-  REST: 'RESTING',
-  DETECTING: 'DETECTING',
-  ACTIVE: 'EXERCISE ACTIVE',
-  UNKNOWN: 'UNKNOWN',
-};
+const stateLabel = { REST: 'RESTING', DETECTING: 'DETECTING', ACTIVE: 'EXERCISE ACTIVE', UNKNOWN: 'UNKNOWN' };
 
-function Metric({ label, value, unit = '' }) {
-  return (
-    <View style={styles.metric}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}{unit ? ` ${unit}` : ''}</Text>
-    </View>
-  );
+function Metric({ label, value }) {
+  return <View style={styles.metric}><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{value}</Text></View>;
 }
 
 export default function ExerciseScreen() {
@@ -32,19 +22,11 @@ export default function ExerciseScreen() {
       onContext: setContext,
       onError: errorValue => setError(errorValue?.message || errorValue),
     });
-
-    service.start()
-      .then(() => setRunning(true))
-      .catch(() => setRunning(false));
-
-    return () => {
-      service.stop();
-      setRunning(false);
-    };
+    service.start().then(() => setRunning(true)).catch(() => setRunning(false));
+    return () => { service.stop(); setRunning(false); };
   }, [setContext, setError, setRunning]);
 
-  const state = context.state;
-  const active = state === 'ACTIVE';
+  const active = context.state === 'ACTIVE';
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -53,8 +35,8 @@ export default function ExerciseScreen() {
       <Text style={styles.subtitle}>Phone-local motion analysis. Context only.</Text>
 
       <View style={[styles.stateCard, active && styles.activeCard]}>
-        <View style={styles.dot} />
-        <Text style={styles.stateText}>{stateLabel[state] || state}</Text>
+        <View style={[styles.dot, active && styles.activeDot]} />
+        <Text style={styles.stateText}>{stateLabel[context.state] || context.state}</Text>
         <Text style={styles.activity}>{context.activity}</Text>
         <Text style={styles.confidence}>{Math.round((context.confidence || 0) * 100)}% confidence</Text>
       </View>
@@ -65,6 +47,8 @@ export default function ExerciseScreen() {
         <Metric label="Motion RMS" value={Number(context.motionRms || 0).toFixed(3)} />
         <Metric label="Gyro RMS" value={Number(context.gyroRms || 0).toFixed(3)} />
         <Metric label="Dynamic accel" value={Number(context.dynamicAccelerationMean || 0).toFixed(3)} />
+        <Metric label="Steps" value={context.stepCount || 0} />
+        <Metric label="Step rate" value={`${Number(context.stepRatePerMin || 0).toFixed(1)}/min`} />
         <Metric label="Samples" value={context.sampleCount || 0} />
       </View>
 
@@ -72,6 +56,7 @@ export default function ExerciseScreen() {
         <Text style={styles.sectionTitle}>Sensor status</Text>
         <Text style={styles.row}>Accelerometer <Text style={styles.ok}>{context.sensorQuality?.accelerometer ? 'AVAILABLE' : 'WAITING'}</Text></Text>
         <Text style={styles.row}>Gyroscope <Text style={styles.ok}>{context.sensorQuality?.gyroscope ? 'AVAILABLE' : 'WAITING'}</Text></Text>
+        <Text style={styles.row}>Pedometer <Text style={styles.ok}>{context.sensorQuality?.pedometer ? 'AVAILABLE' : 'WAITING'}</Text></Text>
         <Text style={styles.row}>Engine <Text style={styles.ok}>{running ? 'RUNNING' : 'STOPPED'}</Text></Text>
       </View>
 
@@ -80,14 +65,10 @@ export default function ExerciseScreen() {
 
       <View style={styles.notice}>
         <Text style={styles.noticeTitle}>RESEARCH MODE</Text>
-        <Text style={styles.noticeText}>
-          Exercise detection is a contextual signal. This screen does not calculate insulin doses or send pump commands.
-        </Text>
+        <Text style={styles.noticeText}>Exercise detection is a contextual signal. This screen does not calculate insulin doses or send pump commands.</Text>
       </View>
 
-      <Pressable style={styles.resetButton} onPress={() => setError(null)}>
-        <Text style={styles.resetText}>Clear status</Text>
-      </Pressable>
+      <Pressable style={styles.resetButton} onPress={() => setError(null)}><Text style={styles.resetText}>Clear status</Text></Pressable>
     </ScrollView>
   );
 }
@@ -99,7 +80,8 @@ const styles = StyleSheet.create({
   subtitle: { color: '#7d8ba6', fontSize: 13, marginTop: 6, marginBottom: 18 },
   stateCard: { backgroundColor: '#111827', borderRadius: 20, padding: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', marginBottom: 16 },
   activeCard: { borderColor: '#00d4aa' },
-  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#00d4aa', marginBottom: 12 },
+  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#73819a', marginBottom: 12 },
+  activeDot: { backgroundColor: '#00d4aa' },
   stateText: { color: '#f0f4ff', fontSize: 24, fontWeight: '800' },
   activity: { color: '#00d4aa', fontSize: 15, fontWeight: '700', marginTop: 5 },
   confidence: { color: '#8c9ab3', marginTop: 10 },
