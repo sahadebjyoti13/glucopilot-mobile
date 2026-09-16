@@ -30,7 +30,13 @@
     },
     "plugins": [
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "GlucoPilot uses motion sensors to detect physical activity for contextual monitoring."
+        }
+      ]
     ],
     "extra": {
       "eas": {
