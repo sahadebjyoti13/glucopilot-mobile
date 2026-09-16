@@ -1,4 +1,4 @@
-import { Accelerometer, Gyroscope } from 'expo-sensors';
+import { Accelerometer, Gyroscope, Pedometer } from 'expo-sensors';
 import { PhoneSensorFusion } from './sensorFusion';
 import { ExerciseDetector } from './exerciseDetector';
 
@@ -12,15 +12,17 @@ export class ExerciseService {
     this.detector = new ExerciseDetector();
     this.accelSubscription = null;
     this.gyroSubscription = null;
+    this.pedometerSubscription = null;
     this.running = false;
   }
 
   async start() {
     if (this.running) return;
     try {
-      const [accelAvailable, gyroAvailable] = await Promise.all([
+      const [accelAvailable, gyroAvailable, pedometerAvailable] = await Promise.all([
         Accelerometer.isAvailableAsync(),
         Gyroscope.isAvailableAsync(),
+        Pedometer.isAvailableAsync(),
       ]);
 
       if (!accelAvailable || !gyroAvailable) {
@@ -43,6 +45,13 @@ export class ExerciseService {
         this.fusion.pushGyroscope({ x, y, z, timestamp: Date.now() });
         this.publish();
       });
+
+      if (pedometerAvailable) {
+        this.pedometerSubscription = Pedometer.watchStepCount(({ steps }) => {
+          this.fusion.pushSteps({ count: steps, timestamp: Date.now() });
+          this.publish();
+        });
+      }
     } catch (error) {
       this.running = false;
       this.onError?.(error);
@@ -60,7 +69,9 @@ export class ExerciseService {
     this.running = false;
     this.accelSubscription?.remove();
     this.gyroSubscription?.remove();
+    this.pedometerSubscription?.remove();
     this.accelSubscription = null;
     this.gyroSubscription = null;
+    this.pedometerSubscription = null;
   }
 }
