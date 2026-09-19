@@ -10,6 +10,8 @@ export const EXERCISE_STATES = Object.freeze({
   UNKNOWN: 'UNKNOWN',
 });
 
+export const ACTIVITIES = Object.freeze({ REST: 'REST', WALKING: 'WALKING', RUNNING: 'RUNNING', CYCLING: 'CYCLING', STRENGTH: 'STRENGTH', UNKNOWN: 'UNKNOWN' });
+
 export const INTENSITIES = Object.freeze({
   UNKNOWN: 'UNKNOWN',
   LOW: 'LOW',
@@ -21,10 +23,13 @@ export function makeExerciseContext(overrides = {}) {
   return {
     timestamp: Date.now(),
     state: EXERCISE_STATES.UNKNOWN,
-    activity: 'UNKNOWN',
+    activity: ACTIVITIES.UNKNOWN,
+    activityConfidence: 0,
     intensity: INTENSITIES.UNKNOWN,
     probability: 0,
     confidence: 0,
+    durationSec: 0,
+    cadenceSpm: 0,
     motionRms: 0,
     gyroRms: 0,
     dynamicAccelerationMean: 0,
@@ -39,7 +44,7 @@ export function makeExerciseContext(overrides = {}) {
     },
     valid: false,
     source: 'PHONE_SENSOR_FUSION',
-    algorithmVersion: '0.1.0',
+    algorithmVersion: '0.2.0',
     reason: 'Sensor fusion not started',
     ...overrides,
   };
