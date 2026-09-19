@@ -4,6 +4,7 @@ import { ExerciseService } from '../exercise/exerciseService';
 import { useExerciseStore } from '../store/exerciseStore';
 
 const stateLabel = { REST: 'RESTING', DETECTING: 'DETECTING', ACTIVE: 'EXERCISE ACTIVE', UNKNOWN: 'UNKNOWN' };
+const activityLabel = { REST: 'At rest', WALKING: 'Walking', RUNNING: 'Running', CYCLING: 'Cycling', STRENGTH: 'Strength activity', UNKNOWN: 'Activity type not classified' };
 
 function Metric({ label, value }) {
   return <View style={styles.metric}><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{value}</Text></View>;
@@ -27,6 +28,11 @@ export default function ExerciseScreen() {
   }, [setContext, setError, setRunning]);
 
   const active = context.state === 'ACTIVE';
+  const activity = activityLabel[context.activity] || context.activity || 'Unknown';
+  const totalSec = Math.floor(Number(context.durationSec) || 0);
+  const durationText = Math.floor(totalSec / 60) + ':' + String(totalSec % 60).padStart(2, '0');
+  const activityConfidence = Math.round((Number(context.activityConfidence) || 0) * 100);
+  const sensorQuality = context.sensorQuality || {};
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -37,28 +43,34 @@ export default function ExerciseScreen() {
       <View style={[styles.stateCard, active && styles.activeCard]}>
         <View style={[styles.dot, active && styles.activeDot]} />
         <Text style={styles.stateText}>{stateLabel[context.state] || context.state}</Text>
-        <Text style={styles.activity}>{context.activity}</Text>
-        <Text style={styles.confidence}>{Math.round((context.confidence || 0) * 100)}% confidence</Text>
+        <Text style={styles.activity}>{activity}</Text>
+        <Text style={styles.confidence}>{active ? activityConfidence + '% activity confidence' : Math.round((context.confidence || 0) * 100) + '% confidence'}</Text>
       </View>
 
       <View style={styles.grid}>
-        <Metric label="Intensity" value={context.intensity} />
-        <Metric label="Probability" value={`${Math.round((context.probability || 0) * 100)}%`} />
-        <Metric label="Motion RMS" value={Number(context.motionRms || 0).toFixed(3)} />
-        <Metric label="Gyro RMS" value={Number(context.gyroRms || 0).toFixed(3)} />
-        <Metric label="Dynamic accel" value={Number(context.dynamicAccelerationMean || 0).toFixed(3)} />
-        <Metric label="Steps" value={context.stepCount || 0} />
-        <Metric label="Step rate" value={`${Number(context.stepRatePerMin || 0).toFixed(1)}/min`} />
-        <Metric label="Samples" value={context.sampleCount || 0} />
+        <Metric label="Intensity" value={context.intensity || 'UNKNOWN'} />
+        <Metric label="Duration" value={durationText} />
+        <Metric label="Cadence" value={context.cadenceSpm > 0 ? Number(context.cadenceSpm).toFixed(0) + ' spm' : '—'} />
+        <Metric label="Steps" value={context.stepCount > 0 ? context.stepCount : '—'} />
+      </View>
+
+      <View style={styles.summaryCard}>
+        <Text style={styles.sectionTitle}>Activity context</Text>
+        <Text style={styles.summaryText}>{context.reason}</Text>
+        <Text style={styles.row}>Exercise probability <Text style={styles.value}>{Math.round((context.probability || 0) * 100)}%</Text></Text>
+        <Text style={styles.row}>Activity confidence <Text style={styles.value}>{activityConfidence}%</Text></Text>
+        <Text style={styles.row}>Step rate <Text style={styles.value}>{context.stepRatePerMin > 0 ? Number(context.stepRatePerMin).toFixed(1) + '/min' : 'Unavailable'}</Text></Text>
       </View>
 
       <View style={styles.statusCard}>
         <Text style={styles.sectionTitle}>Sensor status</Text>
         <Text style={styles.row}>Accelerometer <Text style={styles.ok}>{context.sensorQuality?.accelerometer ? 'AVAILABLE' : 'WAITING'}</Text></Text>
         <Text style={styles.row}>Gyroscope <Text style={styles.ok}>{context.sensorQuality?.gyroscope ? 'AVAILABLE' : 'WAITING'}</Text></Text>
-        <Text style={styles.row}>Pedometer <Text style={styles.ok}>{context.sensorQuality?.pedometer ? 'AVAILABLE' : 'WAITING'}</Text></Text>
+        <Text style={styles.row}>Pedometer <Text style={context.sensorQuality?.pedometer ? styles.ok : styles.muted}>{context.sensorQuality?.pedometer ? 'AVAILABLE' : 'UNAVAILABLE'}</Text></Text>
         <Text style={styles.row}>Engine <Text style={styles.ok}>{running ? 'RUNNING' : 'STOPPED'}</Text></Text>
       </View>
+
+      <View style={styles.diagnostics}><Text style={styles.sectionTitle}>Research diagnostics</Text><Text style={styles.row}>Motion RMS <Text style={styles.value}>{Number(context.motionRms || 0).toFixed(3)}</Text></Text><Text style={styles.row}>Gyro RMS <Text style={styles.value}>{Number(context.gyroRms || 0).toFixed(3)}</Text></Text><Text style={styles.row}>Dynamic acceleration <Text style={styles.value}>{Number(context.dynamicAccelerationMean || 0).toFixed(3)}</Text></Text><Text style={styles.row}>Fusion window <Text style={styles.value}>{context.sampleCount || 0} samples</Text></Text></View>
 
       {!context.valid && <Text style={styles.info}>{context.reason}</Text>}
       {error && <Text style={styles.error}>{error}</Text>}
