@@ -25,6 +25,7 @@ export const usePumpStore = create((set, get) => ({
   // ── Connection ────────────────────────────────────────────────────────────
   backendConnected: false,
   esp32Connected:   false,
+  insulinDecision:   null,
 
   // ── Patient profile (loaded after login) ─────────────────────────────────
   profile: {
@@ -88,6 +89,10 @@ export const usePumpStore = create((set, get) => ({
     }));
   },
 
+  setInsulinDecision(decision) {
+    set({ insulinDecision: decision });
+  },
+
   setConnections({ backend, esp32 } = {}) {
     set(state => ({
       backendConnected: backend ?? state.backendConnected,
@@ -109,6 +114,7 @@ export const usePumpStore = create((set, get) => ({
       reservoir: 300, totalToday: 0, lastBolus: 0,
       glucose: null, glucoseTrend: 0, glucoseHistory: [],
       backendConnected: false, esp32Connected: false,
+      insulinDecision: null,
     });
   },
 }));
