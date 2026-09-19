@@ -20,6 +20,7 @@ import { LoginScreen } from './src/screens/LoginScreen';
 
 import { WS, TokenStore } from './src/services/api';
 import { usePumpStore }    from './src/store/pumpStore';
+import { isSystemPromptActive } from './src/services/systemPromptGuard';
 
 const Tab = createBottomTabNavigator();
 
@@ -77,7 +78,7 @@ export default function App() {
     const sub = AppState.addEventListener('change', async next => {
       const wasBackground = appState.current.match(/inactive|background/);
       const nowActive = next === 'active';
-      if (wasBackground && nowActive && authState === 'authenticated') {
+      if (wasBackground && nowActive && authState === 'authenticated' && !isSystemPromptActive()) {
         const token = await TokenStore.get();
         if (token) await requireBiometric();
       }

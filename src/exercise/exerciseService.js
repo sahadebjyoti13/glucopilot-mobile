@@ -1,6 +1,7 @@
 import { Accelerometer, Gyroscope, Pedometer } from 'expo-sensors';
 import { PhoneSensorFusion } from './sensorFusion';
 import { ExerciseDetector } from './exerciseDetector';
+import { beginSystemPrompt, endSystemPrompt } from '../services/systemPromptGuard';
 
 const UPDATE_INTERVAL_MS = 50; // 20 Hz
 
@@ -31,9 +32,16 @@ export class ExerciseService {
       let pedometerAvailable = false;
       try {
         const permission = await Pedometer.getPermissionsAsync();
-        const granted = permission?.granted
-          ? true
-          : (await Pedometer.requestPermissionsAsync())?.granted === true;
+        let granted = permission?.granted === true;
+
+        if (!granted) {
+          beginSystemPrompt();
+          try {
+            granted = (await Pedometer.requestPermissionsAsync())?.granted === true;
+          } finally {
+            endSystemPrompt();
+          }
+        }
 
         if (granted) {
           pedometerAvailable = await Pedometer.isAvailableAsync();
