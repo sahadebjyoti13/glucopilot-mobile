@@ -39,6 +39,7 @@ export class PhoneSensorFusion {
     this.gyro = [];
     this.gravity = { x: 0, y: 0, z: 0 };
     this.steps = [];
+    this.pedometerAvailable = false;
   }
 
   reset() {
@@ -75,6 +76,10 @@ export class PhoneSensorFusion {
     if ([x, y, z].some(v => v === null)) return;
     this.gyro.push({ timestamp, magnitude: magnitude(x, y, z) });
     this.trim();
+  }
+
+  setPedometerAvailable(available) {
+    this.pedometerAvailable = Boolean(available);
   }
 
   pushSteps(sample) {
@@ -146,7 +151,7 @@ export class PhoneSensorFusion {
         sensorQuality: {
           accelerometer: enoughAccel,
           gyroscope: enoughGyro,
-          pedometer: f.pedometerValid,
+          pedometer: this.pedometerAvailable,
         },
         reason: `Warming up: ${Math.min(f.accelSamples, f.gyroSamples)}/${this.config.minSamples} samples`,
       });
@@ -165,7 +170,7 @@ export class PhoneSensorFusion {
       sensorQuality: {
         accelerometer: true,
         gyroscope: true,
-        pedometer: f.pedometerValid,
+        pedometer: this.pedometerAvailable,
       },
       reason: 'Features ready',
     });
