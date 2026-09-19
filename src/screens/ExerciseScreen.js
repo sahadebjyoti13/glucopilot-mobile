@@ -2,6 +2,8 @@ import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { ExerciseService } from '../exercise/exerciseService';
 import { useExerciseStore } from '../store/exerciseStore';
+import { usePumpStore } from '../store/pumpStore';
+import { sendExerciseContext } from '../exercise/exerciseTelemetry';
 
 const stateLabel = { REST: 'RESTING', DETECTING: 'DETECTING', ACTIVE: 'EXERCISE ACTIVE', UNKNOWN: 'UNKNOWN' };
 const activityLabel = { REST: 'At rest', WALKING: 'Walking', RUNNING: 'Running', CYCLING: 'Cycling', STRENGTH: 'Strength activity', UNKNOWN: 'Activity type not classified' };
@@ -17,10 +19,14 @@ export default function ExerciseScreen() {
   const setRunning = useExerciseStore(s => s.setRunning);
   const setError = useExerciseStore(s => s.setError);
   const setContext = useExerciseStore(s => s.setContext);
+  const insulinDecision = usePumpStore(s => s.insulinDecision);
 
   useEffect(() => {
     const service = new ExerciseService({
-      onContext: setContext,
+      onContext: context => {
+        setContext(context);
+        sendExerciseContext(context);
+      },
       onError: errorValue => setError(errorValue?.message || errorValue),
     });
     service.start().then(() => setRunning(true)).catch(() => setRunning(false));
@@ -60,6 +66,23 @@ export default function ExerciseScreen() {
         <Text style={styles.row}>Exercise probability <Text style={styles.value}>{Math.round((context.probability || 0) * 100)}%</Text></Text>
         <Text style={styles.row}>Activity confidence <Text style={styles.value}>{activityConfidence}%</Text></Text>
         <Text style={styles.row}>Step rate <Text style={styles.value}>{context.stepRatePerMin > 0 ? Number(context.stepRatePerMin).toFixed(1) + '/min' : 'Unavailable'}</Text></Text>
+      </View>
+
+      <View style={styles.summaryCard}>
+        <Text style={styles.sectionTitle}>Insulin decision telemetry</Text>
+        <Text style={styles.summaryText}>
+          {insulinDecision?.reason || 'Waiting for backend decision telemetry'}
+        </Text>
+        <Text style={styles.row}>CGM <Text style={styles.value}>
+          {insulinDecision?.cgm?.value != null ? Number(insulinDecision.cgm.value).toFixed(0) + ' mg/dL' : '—'}
+        </Text></Text>
+        <Text style={styles.row}>Research estimate <Text style={styles.value}>
+          {insulinDecision?.estimate?.units != null ? Number(insulinDecision.estimate.units).toFixed(2) + ' U' : '—'}
+        </Text></Text>
+        <Text style={styles.row}>Calibrated <Text style={styles.value}>
+          {insulinDecision?.estimate?.calibrated ? 'YES' : 'NO'}
+        </Text></Text>
+        <Text style={styles.row}>Pump actuation <Text style={styles.value}>BLOCKED</Text></Text>
       </View>
 
       <View style={styles.statusCard}>
