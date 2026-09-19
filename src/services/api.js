@@ -108,6 +108,7 @@ class WSManager {
     this.reconnectDelay = 3000;
     this._backendConnecting = false;
     this._esp32Connecting   = false;
+    this._shouldReconnect = true;
   }
 
   on(event, cb) {
@@ -122,7 +123,9 @@ class WSManager {
   }
 
   async connectBackend() {
+    this._shouldReconnect = true;
     if (this._backendConnecting) return;
+    if (this.backendWs?.readyState === WebSocket.OPEN || this.backendWs?.readyState === WebSocket.CONNECTING) return;
     this._backendConnecting = true;
     const token = await TokenStore.get();
     if (!token) { this._backendConnecting = false; return; }
@@ -143,12 +146,14 @@ class WSManager {
     this.backendWs.onclose = () => {
       this._backendConnecting = false;
       this.emit('backend:disconnected', {});
-      setTimeout(() => this.connectBackend(), this.reconnectDelay);
+      if (this._shouldReconnect) setTimeout(() => this.connectBackend(), this.reconnectDelay);
     };
   }
 
   async connectESP32() {
+    this._shouldReconnect = true;
     if (this._esp32Connecting) return;
+    if (this.esp32Ws?.readyState === WebSocket.OPEN || this.esp32Ws?.readyState === WebSocket.CONNECTING) return;
     this._esp32Connecting = true;
     const url = await Config.getESP32URL();
     this.esp32Ws = new WebSocket(url);
@@ -168,7 +173,7 @@ class WSManager {
     this.esp32Ws.onclose = () => {
       this._esp32Connecting = false;
       this.emit('esp32:disconnected', {});
-      setTimeout(() => this.connectESP32(), this.reconnectDelay * 2);
+      if (this._shouldReconnect) setTimeout(() => this.connectESP32(), this.reconnectDelay * 2);
     };
   }
 
@@ -210,8 +215,13 @@ class WSManager {
   }
 
   disconnect() {
+    this._shouldReconnect = false;
+    this._backendConnecting = false;
+    this._esp32Connecting = false;
     this.backendWs?.close();
     this.esp32Ws?.close();
+    this.backendWs = null;
+    this.esp32Ws = null;
   }
 }
 

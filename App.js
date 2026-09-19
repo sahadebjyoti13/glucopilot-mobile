@@ -89,7 +89,9 @@ export default function App() {
 
   useEffect(() => {
     if (authState !== 'authenticated') return;
-    WS.connectAll();
+    // Register listeners BEFORE opening the WebSockets. The backend sends an
+    // initial GLUCOSE frame immediately after connection, so listener order
+    // must be deterministic to avoid losing that first CGM reading.
     const unsubs = [
       WS.on('backend:connected',    () => setConns({ backend: true })),
       WS.on('backend:disconnected', () => setConns({ backend: false })),
@@ -110,6 +112,9 @@ export default function App() {
         }
       }),
     ];
+
+    // Only connect after every listener is installed.
+    WS.connectAll();
     return () => {
       unsubs.forEach(u => u());
       WS.disconnect();
