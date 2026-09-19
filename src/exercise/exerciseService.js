@@ -19,17 +19,33 @@ export class ExerciseService {
   async start() {
     if (this.running) return;
     try {
-      const [accelAvailable, gyroAvailable, pedometerAvailable] = await Promise.all([
+      const [accelAvailable, gyroAvailable] = await Promise.all([
         Accelerometer.isAvailableAsync(),
         Gyroscope.isAvailableAsync(),
-        Pedometer.isAvailableAsync(),
       ]);
 
       if (!accelAvailable || !gyroAvailable) {
         throw new Error(`Required sensors unavailable (accelerometer=${accelAvailable}, gyroscope=${gyroAvailable})`);
       }
 
+      let pedometerAvailable = false;
+      try {
+        const permission = await Pedometer.getPermissionsAsync();
+        const granted = permission?.granted
+          ? true
+          : (await Pedometer.requestPermissionsAsync())?.granted === true;
+
+        if (granted) {
+          pedometerAvailable = await Pedometer.isAvailableAsync();
+        }
+      } catch (pedometerError) {
+        // Pedometer is an optional context sensor. Motion fusion continues
+        // when the platform does not expose it or permission is unavailable.
+        this.onError?.(new Error(`Pedometer unavailable: ${pedometerError.message}`));
+      }
+
       this.fusion.reset();
+      this.fusion.setPedometerAvailable(pedometerAvailable);
       this.detector.reset();
       this.running = true;
 
