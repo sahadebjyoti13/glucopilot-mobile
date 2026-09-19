@@ -38,6 +38,7 @@ export default function App() {
   const setPumpData  = usePumpStore(s => s.setPumpData);
   const setGlucose   = usePumpStore(s => s.setGlucose);
   const setConns     = usePumpStore(s => s.setConnections);
+  const setInsulinDecision = usePumpStore(s => s.setInsulinDecision);
 
   useEffect(() => {
     (async () => {
@@ -95,6 +96,7 @@ export default function App() {
       WS.on('esp32:disconnected',   () => setConns({ esp32: false })),
       WS.on('pump:status', msg => setPumpData(msg)),
       WS.on('esp32:status', msg => setPumpData(msg)),
+      WS.on('pump:insulin_decision_telemetry', msg => setInsulinDecision(msg)),
       WS.on('pump:glucose', msg => {
         setGlucose({ value: msg.value, trend: msg.trend });
         setPumpData({ iob: msg.iob, basalRate: msg.basalRate });
